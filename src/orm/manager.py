@@ -22,6 +22,15 @@ class ModelManager:
   def all(self) -> list[object]:
     return QuerySet(self.model).all()
 
+  def order_by(self, *fields: str) -> QuerySet:
+    return QuerySet(self.model).order_by(*fields)
+
+  def limit(self, count: int) -> QuerySet:
+    return QuerySet(self.model).limit(count)
+
+  def offset(self, count: int) -> QuerySet:
+    return QuerySet(self.model).offset(count)
+
   def first(self) -> object | None:
     return QuerySet(self.model).first()
 

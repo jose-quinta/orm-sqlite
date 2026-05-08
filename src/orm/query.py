@@ -70,8 +70,15 @@ class QuerySet:
     conditions = []
     params = []
     for field, operator, value in self._filters:
-      conditions.append(f"{field} {operator} ?")
-      params.append(value)
+      if operator == "IN":
+        if not isinstance(value, (list, tuple)):
+          value = [value]
+        placeholders = ", ".join(["?"] * len(value))
+        conditions.append(f"{field} IN ({placeholders})")
+        params.extend(value)
+      else:
+        conditions.append(f"{field} {operator} ?")
+        params.append(value)
 
     return "WHERE " + " AND ".join(conditions), params
 

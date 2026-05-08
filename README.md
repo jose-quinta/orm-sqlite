@@ -15,13 +15,17 @@ src/
 │   └── orm_example.py     # Ejemplos de uso del ORM
 ├── orm/
 │   ├── __init__.py         # Exports públicos del ORM
+│   ├── _methods.py         # Funciones reutilizables save/delete/create_table
 │   ├── base.py             # Clase base Model
 │   ├── config.py           # Configuración centralizada de BD
+│   ├── decorators.py       # Decorador @model para clases sin herencia
 │   ├── exceptions.py       # Excepciones personalizadas
+│   ├── field_decorators.py # Decoradores de campo (primary_key, char_field, etc.)
 │   ├── fields.py           # Definición de campos (CharField, IntegerField, etc.)
 │   ├── manager.py          # ModelManager para operaciones de modelo
 │   ├── query.py            # QuerySet para consultas avanzadas
 │   ├── registry.py         # Registro central de modelos
+│   ├── setup.py            # Lógica compartida setup_model()
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── base.py         # Interfaz abstracta DatabaseAdapter
@@ -36,10 +40,12 @@ src/
 │       └── related.py      # RelatedManager
 ├── tests/
 │   ├── __init__.py
+│   ├── run_tests.py        # Script para ejecutar todas las pruebas
 │   ├── test_fields.py      # Pruebas unitarias para campos
 │   ├── test_connection.py  # Pruebas para conexión
 │   ├── test_orm.py         # Pruebas para el ORM
-│   └── run_tests.py        # Script para ejecutar todas las pruebas
+│   ├── test_decorators.py  # Pruebas para decoradores @model y field decorators
+│   └── test_orm_advanced.py# Pruebas avanzadas (filtros, agregaciones, bulk)
 └── utils/
     ├── __init__.py
     └── logger.py           # Sistema de logging
@@ -65,18 +71,6 @@ cd orm-sqlite
 
 ```
 orm-sqlite/
-├── src/
-│   ├── orm/
-│   ├── utils/
-│   └── ...
-├── main.py
-└── data/                   # Directorio para la base de datos (opcional)
-```
-
-2. **Estructura mínima requerida en tu proyecto:**
-
-```
-tu_proyecto/
 ├── src/
 │   ├── orm/
 │   ├── utils/
@@ -120,6 +114,10 @@ configure(db)
 
 ### Paso 2: Definir modelos
 
+El ORM soporta **3 enfoques** para definir modelos. Todos son equivalentes:
+
+#### Enfoque 1: Herencia clásica con clases Field
+
 ```python
 from src.orm import Model, CharField, IntegerField, PrimaryKeyField, BooleanField
 
@@ -131,14 +129,39 @@ class User(Model):
     email = CharField(max_length=255, unique=True)
     age = IntegerField(null=True)
     is_active = BooleanField(default=True)
+```
 
-class Post(Model):
-    _table_name = "posts"
+#### Enfoque 2: Decorador @model + field decorators en asignación
 
-    id = PrimaryKeyField()
-    title = CharField(max_length=200, null=False)
-    content = CharField(max_length=1000)
-    author_id = IntegerField(null=False)  # En el futuro: ForeignKey(User)
+```python
+from src.orm import model, primary_key, char_field, integer_field, boolean_field
+
+@model
+class Product:
+    id = primary_key()
+    name = char_field(max_length=200, null=False)
+    price = integer_field(null=False)
+    in_stock = boolean_field(default=True)
+```
+
+#### Enfoque 3: Decorador @model + field decorators sobre métodos
+
+```python
+from src.orm import model, primary_key, char_field, boolean_field
+
+@model(table_name="tags")
+class Tag:
+    @primary_key
+    def id(self):
+        ...
+
+    @char_field(max_length=50, null=False, unique=True)
+    def name(self):
+        ...
+
+    @boolean_field(default=True)
+    def is_active(self):
+        ...
 ```
 
 ### Paso 3: Crear las tablas
@@ -146,7 +169,8 @@ class Post(Model):
 ```python
 # Crear todas las tablas necesarias
 User.create_table()
-Post.create_table()
+Product.create_table()
+Tag.create_table()
 ```
 
 ### Paso 4: Operaciones CRUD
@@ -183,6 +207,15 @@ active_users = User.objects.filter(is_active=True).all()
 # Filtros avanzados
 young_users = User.objects.filter(age__lt=30).all()  # age < 30
 adult_users = User.objects.filter(age__gte=18).all()  # age >= 18
+users_in_group = User.objects.filter(age__in=[25, 30, 35]).all()  # IN
+not_equal = User.objects.filter(age__ne=30).all()  # !=
+name_like = User.objects.filter(name__like="Ali%").all()  # LIKE
+
+# Ordenar y paginar
+sorted_users = User.objects.order_by("age").all()
+desc_users = User.objects.order_by("age DESC").all()
+first_two = User.objects.limit(2).all()
+paginated = User.objects.limit(10).offset(5).all()
 
 # Obtener uno
 alice = User.objects.get(email="alice@example.com")
@@ -255,9 +288,13 @@ with db.transaction():
 
 Para implementar este ORM en un nuevo proyecto, sigue estos pasos:
 
-### 1. Copiar la carpeta `src/`
+### 1. Clonar el repositorio o copiar src/
 
 ```bash
+# Opción 1: Clonar el repositorio
+git clone https://github.com/jose-quinta/orm-sqlite.git
+
+# Opción 2: Copiar la carpeta src/ a tu proyecto
 cp -r /ruta/a/orm-sqlite/src /nuevo/proyecto/
 ```
 
@@ -327,23 +364,15 @@ nuevo_proyecto/
 │   └── product.py
 └── README.md
 ```
-nuevo_proyecto/
-├── main.py              # Punto de entrada
-├── src/                 # ORM y utilidades (copiado)
-├── data/                # Base de datos (se crea automáticamente)
-├── models/              # Tus modelos (opcional)
-│   ├── __init__.py
-│   ├── user.py
-│   └── product.py
-└── README.md
-```
 
 ## ✨ Características Principales
 
 - ✅ **Modelos declarativos**: Define tablas como clases Python
+- ✅ **3 enfoques de definición**: Herencia clásica, decorador `@model` con asignación, decorador `@model` sobre métodos
+- ✅ **Field decorators**: `primary_key`, `char_field`, `integer_field`, `float_field`, `boolean_field`, `datetime_field`, `text_field`
 - ✅ **Tipos de campos**: CharField, IntegerField, FloatField, BooleanField, TextField, DateTimeField
 - ✅ **Consultas avanzadas**: filter, exclude, order_by, limit, offset
-- ✅ **Filtros especiales**: `__lt`, `__gt`, `__lte`, `__gte`, `__like`, `__exact`
+- ✅ **Filtros especiales**: `__lt`, `__gt`, `__lte`, `__gte`, `__like`, `__in`, `__ne`, `__exact`
 - ✅ **Agregaciones**: COUNT, AVG, MAX, MIN, SUM
 - ✅ **Operaciones masivas**: update(), delete() en QuerySet
 - ✅ **Transacciones**: Soporte con context manager
@@ -358,18 +387,20 @@ nuevo_proyecto/
 # Desde la raíz del proyecto
 cd /ruta/a/orm-sqlite
 
-# Ejecutar todas las pruebas
+# Ejecutar todas las pruebas (recommendado)
+python src/tests/run_tests.py
+
+# O individualmente:
 python -m unittest src.tests.test_fields -v
 python -m unittest src.tests.test_connection -v
 python -m unittest src.tests.test_orm -v
-
-# O usar el script unificado
-python src/tests/run_tests.py
+python -m unittest src.tests.test_decorators -v
+python -m unittest src.tests.test_orm_advanced -v
 ```
 
 ## 📝 Ejemplo Completo
 
-Ver el archivo `src/examples/orm_example.py` para un ejemplo completo y funcional.
+Ver el archivo `src/examples/orm_example.py` para un ejemplo completo y funcional con los 3 enfoques.
 
 ```bash
 python src/examples/orm_example.py

@@ -13,6 +13,9 @@ class Field:
     self.name: str | None = None
     self.model: object | None = None
 
+  def __call__(self, fn: object = None) -> object:
+    return self
+
   def __set_name__(self, owner: object, name: str) -> None:
     self.name = name
     self.model = owner
