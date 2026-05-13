@@ -5,11 +5,13 @@ class Field:
     self,
     null: bool = False,
     default: object = None,
-    unique: bool = False
+    unique: bool = False,
+    db_index: bool = False
   ) -> None:
     self.null = null
     self.default = default
     self.unique = unique
+    self.db_index = db_index
     self.name: str | None = None
     self.model: object | None = None
 

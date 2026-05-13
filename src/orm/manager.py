@@ -13,11 +13,11 @@ class ModelManager:
       raise DoesNotExist(f"{self.model.__name__} matching query does not exist") #type: ignore
     return result
 
-  def filter(self, **kwargs: Any) -> QuerySet:
-    return QuerySet(self.model).filter(**kwargs)
+  def filter(self, *args: Any, **kwargs: Any) -> QuerySet:
+    return QuerySet(self.model).filter(*args, **kwargs)
 
-  def exclude(self, **kwargs: Any) -> QuerySet:
-    return QuerySet(self.model).exclude(**kwargs)
+  def exclude(self, *args: Any, **kwargs: Any) -> QuerySet:
+    return QuerySet(self.model).exclude(*args, **kwargs)
 
   def all(self) -> list[object]:
     return QuerySet(self.model).all()
@@ -52,6 +52,18 @@ class ModelManager:
 
   def aggregate(self, **kwargs: Any) -> dict[str, Any]:
     return QuerySet(self.model).aggregate(**kwargs)
+
+  def select_related(self, *fields: str) -> QuerySet:
+    return QuerySet(self.model).select_related(*fields)
+
+  def prefetch_related(self, *fields: str) -> QuerySet:
+    return QuerySet(self.model).prefetch_related(*fields)
+
+  def select(self, *columns: str) -> QuerySet:
+    return QuerySet(self.model).select(*columns)
+
+  def join(self, related_field: str, type: str = "LEFT") -> QuerySet:
+    return QuerySet(self.model).join(related_field, type)
 
   def exists(self) -> bool:
     return QuerySet(self.model).exists()

@@ -6,6 +6,8 @@ class ModelRegistry:
 
   def register(self, model: Type) -> None:
     if model.__name__ in self._models:
+      if self._models[model.__name__] is model:
+        return
       raise ValueError(f"Model '{model.__name__}' already registered")
     self._models[model.__name__] = model
 

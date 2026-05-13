@@ -14,6 +14,7 @@ ENV/
 *.db
 *.sqlite
 *.sqlite3
+data/
 
 # IDE
 .vscode/
@@ -37,3 +38,5 @@ build/
 
 # Libs
 lib/
+
+docs/

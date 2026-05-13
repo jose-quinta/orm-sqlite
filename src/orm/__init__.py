@@ -10,10 +10,28 @@ from src.orm.fields import (
     PrimaryKeyField,
 )
 from src.orm.manager import ModelManager
-from src.orm.query import QuerySet
+from src.orm.query import QuerySet, Q
 from src.orm.registry import registry
 from src.orm.db import DatabaseAdapter, SQLiteAdapter
-from src.orm.migrations import Migrator, Migration
+from src.orm.migrations import (
+    Migrator,
+    Migration,
+    Inspector,
+    ColumnInfo,
+    IndexInfo,
+    ForeignKeyInfo,
+    ModelState,
+    SchemaDiffer,
+    make_migration,
+    Operation,
+    CreateTable,
+    DropTable,
+    AddColumn,
+    DropColumn,
+    CreateIndex,
+    DropIndex,
+    IrreversibleError,
+)
 from src.orm.decorators import model
 from src.orm.field_decorators import (
     primary_key,
@@ -24,6 +42,8 @@ from src.orm.field_decorators import (
     datetime_field,
     text_field,
 )
+from src.orm.relations import ForeignKey, OneToOneField, ManyToManyField, RelatedManager, ManyRelatedManager
+from src.orm.constraints import Index, CheckConstraint, UniqueConstraint
 
 __all__ = [
     "Model",
@@ -43,11 +63,35 @@ __all__ = [
     "DateTimeField",
     "TextField",
     "PrimaryKeyField",
+    "ForeignKey",
+    "OneToOneField",
+    "ManyToManyField",
+    "RelatedManager",
+    "ManyRelatedManager",
     "ModelManager",
     "QuerySet",
+    "Q",
     "registry",
     "DatabaseAdapter",
     "SQLiteAdapter",
     "Migrator",
     "Migration",
+    "Inspector",
+    "ColumnInfo",
+    "IndexInfo",
+    "ForeignKeyInfo",
+    "ModelState",
+    "SchemaDiffer",
+    "make_migration",
+    "Operation",
+    "CreateTable",
+    "DropTable",
+    "AddColumn",
+    "DropColumn",
+    "CreateIndex",
+    "DropIndex",
+    "IrreversibleError",
+    "Index",
+    "CheckConstraint",
+    "UniqueConstraint",
 ]

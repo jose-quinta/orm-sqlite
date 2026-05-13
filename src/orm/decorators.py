@@ -1,4 +1,4 @@
-from src.orm._methods import init_model, save, delete, create_table, drop_table, repr_model
+from src.orm._methods import init_model, save, delete, create_table, drop_table, repr_model, get_pk, set_pk
 from src.orm.setup import setup_model
 from src.orm.base import Model
 
@@ -13,6 +13,7 @@ def model(cls=None, *, table_name=None, db=None):
             cls.drop_table = classmethod(drop_table)
             cls.__init__ = init_model
             cls.__repr__ = repr_model
+            cls.pk = property(get_pk, set_pk)
         else:
             if table_name:
                 cls._table_name = table_name

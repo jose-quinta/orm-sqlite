@@ -15,6 +15,9 @@ from src.orm import (
     CharField,
     IntegerField,
     BooleanField,
+    ForeignKey,
+    OneToOneField,
+    ManyToManyField,
     SQLiteAdapter,
     registry,
 )
@@ -31,110 +34,144 @@ def main():
         db_name_extension="db",
     )
     db.connect()
+    db.execute("PRAGMA foreign_keys = ON", [])
 
     configure(db)
 
-    # --- Enfoque 1: Herencia clásica con Field classes ---
+    # --- Modelos con relaciones ---
+
     class User(Model):
         _table_name = "users"
 
         id = PrimaryKeyField()
         name = CharField(max_length=100, null=False)
         email = CharField(max_length=255, unique=True)
-        age = IntegerField(null=True)
         is_active = BooleanField(default=True)
 
-    # --- Enfoque 2: @model con field decorators en asignación ---
-    @model(table_name= "products") #type: ignore
-    class Product:
+    class Post(Model):
+        _table_name = "posts"
+
+        id = PrimaryKeyField()
+        title = CharField(max_length=200, null=False)
+        content = CharField(max_length=1000)
+        author = ForeignKey(User, related_name="posts", null=False)
+
+    class Profile(Model):
+        _table_name = "profiles"
+
+        id = PrimaryKeyField()
+        bio = CharField(max_length=500)
+        user = OneToOneField(User, related_name="profile")
+
+    @model
+    class Category:
         id = primary_key()
-        name = char_field(max_length=200, null=False)
-        price = integer_field(null=False)
-        in_stock = boolean_field(default=True)
+        name = char_field(max_length=100, null=False, unique=True)
 
-    # --- Enfoque 3: @model con field decorators sobre métodos ---
-    @model(table_name="tags") #type: ignore
+    class PostCategory(Model):
+        _table_name = "post_categories"
+
+        id = PrimaryKeyField()
+        post = ForeignKey(Post, related_name="categories")
+        category = ForeignKey(Category, related_name="posts")
+
+    @model
     class Tag:
-        @primary_key
-        def id(self):
-            ...
+        id = primary_key()
+        name = char_field(max_length=50, null=False, unique=True)
 
-        @char_field(max_length=50, null=False, unique=True)
-        def name(self):
-            ...
+    class PostTag(Model):
+        _table_name = "post_tags"
 
-        @boolean_field(default=True)
-        def is_active(self):
-            ...
+        id = PrimaryKeyField()
+        post = ForeignKey(Post, related_name="tags")
+        tag = ForeignKey(Tag, related_name="posts")
 
     print("Creating tables...")
     User.create_table()
-    Product.create_table()
+    Post.create_table()
+    Category.create_table()
+    PostCategory.create_table()
     Tag.create_table()
+    PostTag.create_table()
 
     print("Clearing existing data...")
-    User.objects.filter().delete()
-    Product.objects.filter().delete()
-    Tag.objects.filter().delete()
+    # Desactivar FK para poder borrar en cualquier orden
+    db.execute("PRAGMA foreign_keys = OFF", [])
+    for m in reversed(list(registry.get_all().values())):
+        try:
+            m.drop_table()
+        except Exception:
+            pass
+    for m in registry.get_all().values():
+        try:
+            m.create_table()
+        except Exception:
+            pass
+    db.execute("PRAGMA foreign_keys = ON", [])
 
-    print("\n--- Users (herencia + Field classes) ---")
-    user1 = User.objects.create(
-        name="Alice", email="alice@test.com", age=30,
-    )
-    print(f"  Created: {user1}")
+    print("\n--- Creating users ---")
+    alice = User.objects.create(name="Alice", email="alice@test.com")
+    bob = User.objects.create(name="Bob", email="bob@test.com")
+    print(f"  {alice}")
+    print(f"  {bob}")
 
-    user2 = User.objects.create(
-        name="Bob", email="bob@test.com", age=25, is_active=False,
-    )
-    print(f"  Created: {user2}")
+    print("\n--- Creating posts with FK (author=alice) ---")
+    post1 = Post.objects.create(title="First Post", content="Hello!", author=alice)
+    print(f"  Created: {post1}")
 
-    print("\nAll users:")
-    for u in User.objects.all():
-        print(f"  {u}")
+    post2 = Post.objects.create(title="Second Post", content="World!", author=alice)
+    print(f"  Created: {post2}")
 
-    print("\n--- Products (@model + field decorators en asignación) ---")
-    product1 = Product.objects.create(
-        name="Laptop", price=1000, in_stock=True,
-    )
-    print(f"  Created: {product1}")
+    post3 = Post.objects.create(title="Bob's Post", content="Hi!", author=bob)
+    print(f"  Created: {post3}")
 
-    product2 = Product.objects.create(
-        name="Mouse", price=25, in_stock=False,
-    )
-    print(f"  Created: {product2}")
+    print("\n--- Lazy loading: post.author ---")
+    for p in Post.objects.all():
+        author = p.author
+        print(f"  '{p.title}' by {author.name}")
 
-    print("\nAll products:")
-    for p in Product.objects.all():
-        print(f"  {p}")
+    print("\n--- Reverse relation: alice.posts.all() ---")
+    for p in alice.posts.all():
+        print(f"  {p.title}")
 
-    print("\n--- Tags (@model + field decorators sobre métodos) ---")
-    tag1 = Tag.objects.create(name="python", is_active=True)
-    print(f"  Created: {tag1}")
+    print("\n--- Reverse relation with filter: alice.posts.filter() ---")
+    for p in alice.posts.filter(title__like="First%").all():
+        print(f"  {p.title}")
 
-    tag2 = Tag.objects.create(name="sqlite", is_active=True)
-    print(f"  Created: {tag2}")
+    print("\n--- Creating related posts via alice.posts.create() ---")
+    post4 = alice.posts.create(title="Third Post", content="Created via relation")
+    print(f"  Created: {post4}")
 
-    tag3 = Tag.objects.create(name="deprecated", is_active=False)
-    print(f"  Created: {tag3}")
+    print("\n--- OneToOne: Profile ---")
+    profile = Profile.objects.create(bio="Alice's bio", user=alice)
+    print(f"  Profile: {profile}")
+    print(f"  Profile user: {profile.user.name}")
+    print(f"  Alice profile: {alice.profile}")
 
-    print("\nAll tags:")
-    for t in Tag.objects.all():
-        print(f"  {t}")
+    print("\n--- ManyToMany via intermediate table ---")
+    tech = Category.objects.create(name="Tech")
+    life = Category.objects.create(name="Lifestyle")
 
-    print("\nFilter active tags:")
-    for t in Tag.objects.filter(is_active=True).all():
-        print(f"  {t}")
+    PostCategory.objects.create(post=post1, category=tech)
+    PostCategory.objects.create(post=post2, category=tech)
+    PostCategory.objects.create(post=post2, category=life)
 
-    print("\nAggregations (Users):")
-    agg = User.objects.aggregate(
-        total="COUNT(*)",
-        avg_age="AVG(age)",
-        max_age="MAX(age)",
-    )
-    print(f"  Total: {agg.get('total')}")
-    print(f"  Avg age: {agg.get('avg_age')}")
-    if agg.get("max_age"):
-        print(f"  Max age: {agg.get('max_age')}")
+    print("  Post 1 categories:")
+    for pc in PostCategory.objects.filter(post_id=post1.id).all():
+        print(f"    {pc.category.name}")
+
+    print("\n--- Tags with M2M helper ---")
+    python = Tag.objects.create(name="python")
+    sqlite = Tag.objects.create(name="sqlite")
+
+    PostTag.objects.create(post=post1, tag=python)
+    PostTag.objects.create(post=post1, tag=sqlite)
+    PostTag.objects.create(post=post2, tag=python)
+
+    print("  Post 1 tags:")
+    for pt in PostTag.objects.filter(post_id=post1.id).all():
+        print(f"    {pt.tag.name}")
 
     print("\nRegistered models:")
     for name in registry.get_all():

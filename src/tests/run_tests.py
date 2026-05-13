@@ -15,6 +15,12 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromName("src.tests.test_orm"))
     suite.addTests(loader.loadTestsFromName("src.tests.test_decorators"))
     suite.addTests(loader.loadTestsFromName("src.tests.test_orm_advanced"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_orm_relations"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_query_builder"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_query_q"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_lazy_loading"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_constraints"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_migrations"))
 
     runner = unittest.TextTestRunner(verbosity=2)
     runner.run(suite)

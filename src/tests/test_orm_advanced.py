@@ -31,6 +31,7 @@ class TestAdvancedQueries(unittest.TestCase):
             db_name_extension="db",
         )
         cls.db.connect()
+        cls.db.execute("PRAGMA foreign_keys = ON", [])
         configure(cls.db)
 
         class User(Model):

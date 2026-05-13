@@ -28,6 +28,17 @@ class Model:
     def delete(self) -> None:
         delete(self)
 
+    @property
+    def pk(self) -> Any:
+        if self._pk_field:
+            return getattr(self, self._pk_field, None)
+        return None
+
+    @pk.setter
+    def pk(self, value: Any) -> None:
+        if self._pk_field:
+            setattr(self, self._pk_field, value)
+
     @classmethod
     def create_table(cls) -> None:
         create_table(cls)
