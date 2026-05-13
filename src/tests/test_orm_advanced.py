@@ -34,6 +34,9 @@ class TestAdvancedQueries(unittest.TestCase):
         cls.db.execute("PRAGMA foreign_keys = ON", [])
         configure(cls.db)
 
+        for name in list(registry.get_all().keys()):
+            registry.unregister(name)
+
         class User(Model):
             _db = cls.db
             _table_name = "users"
@@ -50,6 +53,12 @@ class TestAdvancedQueries(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        cls.db.execute("PRAGMA foreign_keys = OFF", [])
+        for m in reversed(list(registry.get_all().values())):
+            try:
+                m.drop_table()
+            except Exception:
+                pass
         cls.db.close()
         db_file = os.path.join(cls.temp_dir, "test_advanced.db")
         if os.path.exists(db_file):
@@ -57,6 +66,16 @@ class TestAdvancedQueries(unittest.TestCase):
         os.rmdir(cls.temp_dir)
 
     def setUp(self):
+        for name in list(registry.get_all().keys()):
+            registry.unregister(name)
+        for model_cls in [self.User]:
+            try:
+                model_cls.drop_table()
+            except Exception:
+                pass
+            model_cls.create_table()
+            registry.register(model_cls)
+
         for u in self.User.objects.all():
             u.delete()
         self._seed()

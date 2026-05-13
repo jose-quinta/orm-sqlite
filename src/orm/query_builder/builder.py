@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from src.orm.query_builder.clauses import (
     Select,
     Where,
@@ -8,6 +8,9 @@ from src.orm.query_builder.clauses import (
     Offset,
     CompiledQuery,
 )
+
+if TYPE_CHECKING:
+    from src.orm.db.dialect import Dialect
 
 
 _OPERATOR_MAP = {
@@ -79,7 +82,7 @@ class QueryBuilder:
         self._offset = Offset(value)
         return self
 
-    def compile(self) -> CompiledQuery:
+    def compile(self, dialect: Optional["Dialect"] = None) -> CompiledQuery:
         sql = f"SELECT {self._select.compile()} FROM {self._from}"
 
         for j in self._joins:
@@ -87,7 +90,7 @@ class QueryBuilder:
 
         params: list[Any] = []
         if self._where:
-            where_sql, where_params = self._where.compile()
+            where_sql, where_params = self._where.compile(dialect=dialect)
             if where_sql:
                 sql += f" WHERE {where_sql}"
                 params = where_params
@@ -96,9 +99,13 @@ class QueryBuilder:
             sql += f" ORDER BY {self._order_by.compile()}"
 
         if self._limit is not None:
-            sql += f" LIMIT {self._limit.value}"
+            if dialect:
+                offset = self._offset.value if self._offset else 0
+                sql += f" {dialect.compile_limit_offset(self._limit.value, offset)}"
+            else:
+                sql += f" LIMIT {self._limit.value}"
 
-        if self._offset is not None:
+        if self._offset is not None and dialect is None:
             sql += f" OFFSET {self._offset.value}"
 
         return CompiledQuery(sql, params)

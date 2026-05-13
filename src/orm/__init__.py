@@ -12,7 +12,10 @@ from src.orm.fields import (
 from src.orm.manager import ModelManager
 from src.orm.query import QuerySet, Q
 from src.orm.registry import registry
-from src.orm.db import DatabaseAdapter, SQLiteAdapter
+from src.orm.db import DatabaseAdapter, SQLiteAdapter, PostgreSQLAdapter, MySQLAdapter, Dialect, SQLiteDialect, PostgreSQLDialect, MySQLDialect
+from src.orm.db.registry import create_adapter, create_adapter_from_env, register_adapter, get_adapter_class
+from src.orm.db.url_parser import parse_database_url, DatabaseURL
+from src.orm.config import configure, get_default_db, register_db, get_db, get_all_dbs, configure_from_url
 from src.orm.migrations import (
     Migrator,
     Migration,
@@ -74,6 +77,24 @@ __all__ = [
     "registry",
     "DatabaseAdapter",
     "SQLiteAdapter",
+    "PostgreSQLAdapter",
+    "MySQLAdapter",
+    "Dialect",
+    "SQLiteDialect",
+    "PostgreSQLDialect",
+    "MySQLDialect",
+    "create_adapter",
+    "create_adapter_from_env",
+    "register_adapter",
+    "get_adapter_class",
+    "parse_database_url",
+    "DatabaseURL",
+    "configure",
+    "get_default_db",
+    "register_db",
+    "get_db",
+    "get_all_dbs",
+    "configure_from_url",
     "Migrator",
     "Migration",
     "Inspector",

@@ -1,4 +1,8 @@
+from typing import Optional, TYPE_CHECKING
 from src.orm.exceptions import FieldError
+
+if TYPE_CHECKING:
+  from src.orm.db.dialect import Dialect
 
 class Field:
   def __init__(
@@ -22,7 +26,7 @@ class Field:
     self.name = name
     self.model = owner
 
-  def to_sql(self) -> str:
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
     raise NotImplementedError
 
   def validate(self, value: object) -> object:
@@ -37,7 +41,14 @@ class PrimaryKeyField(Field):
     super().__init__(null=False, unique=True)
     self.auto_increment = True
 
-  def to_sql(self) -> str:
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      pk_type = dialect.type_map.get("primary_key", "INTEGER")
+      sql = f"{self.name} {pk_type} PRIMARY KEY"
+      auto_inc = dialect.auto_increment_sql()
+      if auto_inc and auto_inc != "SERIAL":
+        sql += f" {auto_inc}"
+      return sql
     return f"{self.name} INTEGER PRIMARY KEY AUTOINCREMENT"
 
 class CharField(Field):
@@ -49,8 +60,12 @@ class CharField(Field):
     super().__init__(**kwargs) #type: ignore
     self.max_length = max_length
 
-  def to_sql(self) -> str:
-    sql = f"{self.name} VARCHAR({self.max_length})"
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      type_name = dialect.type_map.get("string", "VARCHAR")
+      sql = f"{self.name} {type_name}({self.max_length})"
+    else:
+      sql = f"{self.name} VARCHAR({self.max_length})"
     if not self.null:
       sql += " NOT NULL"
     if self.unique:
@@ -67,8 +82,12 @@ class IntegerField(Field):
   def __init__(self, **kwargs: object) -> None:
     super().__init__(**kwargs) #type: ignore
 
-  def to_sql(self) -> str:
-    sql = f"{self.name} INTEGER"
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      type_name = dialect.type_map.get("integer", "INTEGER")
+      sql = f"{self.name} {type_name}"
+    else:
+      sql = f"{self.name} INTEGER"
     if not self.null:
       sql += " NOT NULL"
     if self.unique:
@@ -88,8 +107,12 @@ class FloatField(Field):
   def __init__(self, **kwargs: object) -> None:
     super().__init__(**kwargs) #type: ignore
 
-  def to_sql(self) -> str:
-    sql = f"{self.name} REAL"
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      type_name = dialect.type_map.get("float", "REAL")
+      sql = f"{self.name} {type_name}"
+    else:
+      sql = f"{self.name} REAL"
     if not self.null:
       sql += " NOT NULL"
     if self.unique:
@@ -109,8 +132,12 @@ class BooleanField(Field):
   def __init__(self, **kwargs: object) -> None:
     super().__init__(**kwargs) #type: ignore
 
-  def to_sql(self) -> str:
-    sql = f"{self.name} BOOLEAN"
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      type_name = dialect.type_map.get("boolean", "BOOLEAN")
+      sql = f"{self.name} {type_name}"
+    else:
+      sql = f"{self.name} BOOLEAN"
     if not self.null:
       sql += " NOT NULL"
     return sql
@@ -126,8 +153,12 @@ class DateTimeField(Field):
     super().__init__(**kwargs) #type: ignore
     self.auto_now = auto_now
 
-  def to_sql(self) -> str:
-    sql = f"{self.name} DATETIME"
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      type_name = dialect.type_map.get("datetime", "DATETIME")
+      sql = f"{self.name} {type_name}"
+    else:
+      sql = f"{self.name} DATETIME"
     if not self.null:
       sql += " NOT NULL"
     return sql
@@ -136,8 +167,12 @@ class TextField(Field):
   def __init__(self, **kwargs: object) -> None:
     super().__init__(**kwargs) #type: ignore
 
-  def to_sql(self) -> str:
-    sql = f"{self.name} TEXT"
+  def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+    if dialect:
+      type_name = dialect.type_map.get("text", "TEXT")
+      sql = f"{self.name} {type_name}"
+    else:
+      sql = f"{self.name} TEXT"
     if not self.null:
       sql += " NOT NULL"
     if self.unique:

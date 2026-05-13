@@ -21,6 +21,7 @@ if __name__ == "__main__":
     suite.addTests(loader.loadTestsFromName("src.tests.test_lazy_loading"))
     suite.addTests(loader.loadTestsFromName("src.tests.test_constraints"))
     suite.addTests(loader.loadTestsFromName("src.tests.test_migrations"))
+    suite.addTests(loader.loadTestsFromName("src.tests.test_adapters"))
 
     runner = unittest.TextTestRunner(verbosity=2)
     runner.run(suite)

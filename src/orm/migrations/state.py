@@ -1,7 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from src.orm.relations.fields import ForeignKey, OneToOneField
+
+if TYPE_CHECKING:
+    from src.orm.db.dialect import Dialect
 
 
 @dataclass
@@ -49,7 +52,7 @@ class ModelState:
     check_constraints: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_model(cls, model_class: type) -> "ModelState":
+    def from_model(cls, model_class: type, dialect: Optional["Dialect"] = None) -> "ModelState":
         table = model_class._table_name
         pk_field = getattr(model_class, "_pk_field", None) or "id"
         columns: list[ColumnState] = []
@@ -63,10 +66,14 @@ class ModelState:
                 col_name = field.fk_column
                 ref = field.to
                 ref_pk = field._get_pk_name()
+                if dialect:
+                    ref_type = dialect.type_map.get("integer", "INTEGER")
+                else:
+                    ref_type = "INTEGER"
                 columns.append(
                     ColumnState(
                         name=col_name,
-                        type="INTEGER",
+                        type=ref_type,
                         nullable=field.null,
                         default=field.default,
                         primary_key=False,
@@ -83,7 +90,7 @@ class ModelState:
                     )
                 )
             else:
-                sql = field.to_sql()
+                sql = field.to_sql(dialect=dialect)
                 col_type = _extract_type(sql)
                 columns.append(
                     ColumnState(

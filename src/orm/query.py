@@ -1,8 +1,11 @@
 import sys
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 from src.orm.exceptions import QueryError
 from src.orm.query_builder import QueryBuilder
 from src.orm.query_builder.clauses import Where
+
+if TYPE_CHECKING:
+    from src.orm.db.dialect import Dialect
 
 
 class Q:
@@ -41,6 +44,12 @@ class QuerySet:
     self._select_related_built: bool = False
     self._joined_aliases: set[str] = set()
     self._prefetch_related: list[str] = []
+
+  def _get_dialect(self) -> Optional["Dialect"]:
+    db = getattr(self.model, "_db", None)
+    if db is not None and hasattr(db, "get_dialect"):
+      return db.get_dialect()
+    return None
 
   def _fk_fields(self) -> dict:
     return getattr(self.model, "_fk_fields", {})
@@ -176,6 +185,7 @@ class QuerySet:
     return (f"{self.model._table_name}.{field}", operator, value)
 
   def _q_to_where(self, q: Q, operator_map: dict, default_op: str = "=") -> Where:
+    dialect = self._get_dialect()
     negated = getattr(q, "_negated", False)
     where = Where(connector=q._connector)
     for child in q._children:
@@ -186,7 +196,7 @@ class QuerySet:
       elif isinstance(child, Q):
         where.add_where(self._q_to_where(child, operator_map, default_op))
     if negated:
-      sql, params = where.compile()
+      sql, params = where.compile(dialect=dialect)
       negated_where = Where()
       negated_where.add_raw(f"NOT ({sql})", params)
       return negated_where
@@ -217,6 +227,7 @@ class QuerySet:
     return self
 
   def exclude(self, *args: Any, **kwargs: Any) -> "QuerySet":
+    dialect = self._get_dialect()
     operator_map = {
       None: "!=",
       "exact": "!=",
@@ -229,7 +240,7 @@ class QuerySet:
     for arg in args:
       if isinstance(arg, Q):
         q_where = self._q_to_where(arg, {None: "=", "exact": "=", "ne": "!=", "gt": ">", "gte": ">=", "lt": "<", "lte": "<=", "like": "LIKE", "in": "IN"}, "=")
-        sql, params = q_where.compile()
+        sql, params = q_where.compile(dialect=dialect)
         self._builder._where.add_raw(f"NOT ({sql})", params)
       else:
         raise QueryError(f"Invalid exclude argument: {arg}")
@@ -382,7 +393,7 @@ class QuerySet:
         return
       t1 = m2m.owner._table_name
       t2 = m2m.to._table_name
-      placeholders = ",".join("?" for _ in pks)
+      placeholders = self._placeholders(len(pks))
       try:
         cursor = self.model._db.query(
           f"SELECT {t1}_id, {t2}_id FROM {m2m.table_name} WHERE {t1}_id IN ({placeholders})",
@@ -421,7 +432,7 @@ class QuerySet:
         return
       t1 = m2m.owner._table_name
       t2 = m2m.to._table_name
-      placeholders = ",".join("?" for _ in pks)
+      placeholders = self._placeholders(len(pks))
       try:
         cursor = self.model._db.query(
           f"SELECT {t2}_id, {t1}_id FROM {m2m.table_name} WHERE {t2}_id IN ({placeholders})",
@@ -455,7 +466,7 @@ class QuerySet:
 
     raise QueryError(f"Cannot prefetch unknown relation '{field_name}'")
 
-  def _build_from_join_where(self) -> tuple[str, list[Any]]:
+  def _build_from_join_where(self, dialect: Optional["Dialect"] = None) -> tuple[str, list[Any]]:
     sql = f"FROM {self.model._table_name}"
 
     for j in self._builder._joins:
@@ -463,15 +474,15 @@ class QuerySet:
 
     params: list[Any] = []
     if self._builder._where:
-      where_sql, where_params = self._builder._where.compile()
+      where_sql, where_params = self._builder._where.compile(dialect=dialect)
       if where_sql:
         sql += f" WHERE {where_sql}"
         params = where_params
 
     return sql, params
 
-  def _build_query(self) -> tuple[str, list[Any]]:
-    compiled = self._builder.compile()
+  def _build_query(self, dialect: Optional["Dialect"] = None) -> tuple[str, list[Any]]:
+    compiled = self._builder.compile(dialect=dialect)
     if not self._builder._select.columns and self._builder._joins:
       cols = ", ".join(
         f"{self.model._table_name}.{col_name} AS {col_name}"
@@ -481,11 +492,18 @@ class QuerySet:
       return sql, compiled.params
     return compiled.sql, compiled.params
 
+  def _placeholders(self, count: int) -> str:
+    dialect = self._get_dialect()
+    if dialect:
+      return dialect.placeholders(count)
+    return ", ".join("?" for _ in range(count))
+
   def all(self) -> list[object]:
+    dialect = self._get_dialect()
     if self._select_related and not self._select_related_built:
       self._build_select_columns()
 
-    query, params = self._build_query()
+    query, params = self._build_query(dialect=dialect)
     cursor = self.model._db.query(query, params)
     rows = cursor.fetchall()
 
@@ -505,9 +523,10 @@ class QuerySet:
     return results[0] if results else None
 
   def count(self) -> int:
+    dialect = self._get_dialect()
     table_name = self.model._table_name
     pk_name = getattr(self.model, "_pk_field", None) or "id"
-    from_join_where, params = self._build_from_join_where()
+    from_join_where, params = self._build_from_join_where(dialect=dialect)
     query = f"SELECT COUNT(DISTINCT {table_name}.{pk_name}) {from_join_where}"
     cursor = self.model._db.query(query, params)
     return cursor.fetchone()[0]
@@ -516,32 +535,36 @@ class QuerySet:
     return self.count() > 0
 
   def delete(self) -> int:
+    dialect = self._get_dialect()
     table_name = self.model._table_name
     pk_name = getattr(self.model, "_pk_field", None) or "id"
-    from_join_where, params = self._build_from_join_where()
+    from_join_where, params = self._build_from_join_where(dialect=dialect)
     query = f"DELETE FROM {table_name} WHERE {pk_name} IN (SELECT {table_name}.{pk_name} {from_join_where})"
     cursor = self.model._db.execute(query, params)
     return cursor.rowcount
 
   def update(self, **kwargs: Any) -> int:
+    dialect = self._get_dialect()
     table_name = self.model._table_name
     pk_name = getattr(self.model, "_pk_field", None) or "id"
 
-    set_clause = ", ".join([f"{k} = ?" for k in kwargs])
+    ph = dialect.param_style if dialect else "?"
+    set_clause = ", ".join([f"{k} = {ph}" for k in kwargs])
     set_params = list(kwargs.values())
 
-    from_join_where, where_params = self._build_from_join_where()
+    from_join_where, where_params = self._build_from_join_where(dialect=dialect)
 
     query = f"UPDATE {table_name} SET {set_clause} WHERE {pk_name} IN (SELECT {table_name}.{pk_name} {from_join_where})"
     cursor = self.model._db.execute(query, set_params + where_params)
     return cursor.rowcount
 
   def aggregate(self, **kwargs: Any) -> dict[str, Any]:
+    dialect = self._get_dialect()
     agg_fields = []
     for alias, expr in kwargs.items():
       agg_fields.append(f"{expr} AS {alias}")
 
-    from_join_where, params = self._build_from_join_where()
+    from_join_where, params = self._build_from_join_where(dialect=dialect)
     query = f"SELECT {', '.join(agg_fields)} {from_join_where}"
     cursor = self.model._db.query(query, params)
     row = cursor.fetchone()

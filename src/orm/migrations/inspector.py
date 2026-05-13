@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Optional
+from src.orm.db.dialect import Dialect
 
 
 @dataclass
@@ -31,54 +32,67 @@ class Inspector:
     def __init__(self, db: Any) -> None:
         self.db = db
 
+    def _get_dialect(self) -> Dialect:
+        if hasattr(self.db, "get_dialect"):
+            return self.db.get_dialect()
+        from src.orm.db.dialect import SQLiteDialect
+        return SQLiteDialect()
+
     def get_table_names(self) -> list[str]:
-        cursor = self.db.query(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
-        return [row["name"] for row in cursor.fetchall()]
+        dialect = self._get_dialect()
+        cursor = self.db.query(dialect.inspect_tables_sql())
+        names = []
+        for row in cursor.fetchall():
+            for v in dict(row).values():
+                if isinstance(v, str):
+                    names.append(v)
+        return names
 
     def get_columns(self, table: str) -> list[ColumnInfo]:
-        cursor = self.db.query(f"PRAGMA table_info(\"{table}\")")
+        dialect = self._get_dialect()
+        cursor = self.db.query(dialect.inspect_columns_sql(table))
         result = []
         for row in cursor.fetchall():
-            d = dict(row)
+            p = dialect.parse_column_row(dict(row))
             result.append(
                 ColumnInfo(
-                    name=d["name"],
-                    type=d["type"],
-                    nullable=not d["notnull"],
-                    default=d["dflt_value"],
-                    primary_key=bool(d["pk"]),
+                    name=p["name"],
+                    type=p["type"],
+                    nullable=p["nullable"],
+                    default=p["default"],
+                    primary_key=p["primary_key"],
                 )
             )
         return result
 
     def get_indexes(self, table: str) -> list[IndexInfo]:
-        cursor = self.db.query(f"PRAGMA index_list(\"{table}\")")
+        dialect = self._get_dialect()
+        cursor = self.db.query(dialect.inspect_indexes_sql(table))
         result = []
         for row in cursor.fetchall():
-            d = dict(row)
+            d = dialect.parse_index_row(dict(row))
             name = d["name"]
-            unique = bool(d["unique"])
-            col_cursor = self.db.query(f"PRAGMA index_info(\"{name}\")")
-            cols = [dict(r)["name"] for r in col_cursor.fetchall()]
+            unique = d["unique"]
+            col_cursor = self.db.query(dialect.inspect_index_columns_sql(name))
+            cols = [dialect.parse_index_column_row(dict(r))["name"] for r in col_cursor.fetchall()]
             result.append(IndexInfo(name=name, unique=unique, columns=cols))
         return result
 
     def get_foreign_keys(self, table: str) -> list[ForeignKeyInfo]:
-        cursor = self.db.query(f"PRAGMA foreign_key_list(\"{table}\")")
+        dialect = self._get_dialect()
+        cursor = self.db.query(dialect.inspect_foreign_keys_sql(table))
         fk_map: dict[int, ForeignKeyInfo] = {}
         for row in cursor.fetchall():
-            d = dict(row)
-            seq = d["seq"]
+            p = dialect.parse_foreign_key_row(dict(row))
+            seq = p["seq"]
             if seq not in fk_map:
                 fk_map[seq] = ForeignKeyInfo(
                     columns=[],
-                    ref_table=d["table"],
+                    ref_table=p["table"],
                     ref_columns=[],
-                    on_delete=d.get("on_delete") or None,
-                    on_update=d.get("on_update") or None,
+                    on_delete=p.get("on_delete") or None,
+                    on_update=p.get("on_update") or None,
                 )
-            fk_map[seq].columns.append(d["from"])
-            fk_map[seq].ref_columns.append(d["to"])
+            fk_map[seq].columns.append(p["from"])
+            fk_map[seq].ref_columns.append(p["to"])
         return list(fk_map.values())

@@ -1,8 +1,11 @@
 import sys
-from typing import Type, Any, Optional
+from typing import Type, Any, Optional, TYPE_CHECKING
 from src.orm.fields import Field
 from src.orm.registry import registry
 from src.orm.exceptions import FieldError
+
+if TYPE_CHECKING:
+  from src.orm.db.dialect import Dialect
 
 
 class ForeignKey(Field):
@@ -69,9 +72,13 @@ class ForeignKey(Field):
             instance.__dict__[self.fk_column] = value
             instance.__dict__.pop(f"_{self.name}_cached", None)
 
-    def to_sql(self) -> str:
+    def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
         pk_name = self._get_pk_name()
-        sql = f"{self.fk_column} INTEGER REFERENCES {self.to._table_name}({pk_name})"
+        if dialect:
+            ref_type = dialect.type_map.get("integer", "INTEGER")
+            sql = f"{self.fk_column} {ref_type} REFERENCES {self.to._table_name}({pk_name})"
+        else:
+            sql = f"{self.fk_column} INTEGER REFERENCES {self.to._table_name}({pk_name})"
         if self.on_delete:
             sql += f" ON DELETE {self.on_delete}"
         if self.on_update:
@@ -106,8 +113,8 @@ class OneToOneField(ForeignKey):
         rel_name = self._related_name or f"{owner.__name__.lower()}"
         setattr(self.to, rel_name, _OneToOneReverseDescriptor(self, rel_name))
 
-    def to_sql(self) -> str:
-        return super().to_sql() + " UNIQUE"
+    def to_sql(self, dialect: Optional["Dialect"] = None) -> str:
+        return super().to_sql(dialect) + " UNIQUE"
 
 
 class _OneToOneReverseDescriptor:
@@ -161,6 +168,11 @@ class ManyToManyField:
         setattr(self.to, rel_name, ManyRelatedManager(self))
 
     def create_table(self, db: Any) -> None:
+        dialect = db.get_dialect() if hasattr(db, "get_dialect") else None
+        if dialect:
+            ref_type = dialect.type_map.get("integer", "INTEGER")
+        else:
+            ref_type = "INTEGER"
         pk1 = self._get_pk_name(self.owner)
         pk2 = self._get_pk_name(self.to)
         t1 = self.owner._table_name
@@ -168,8 +180,8 @@ class ManyToManyField:
 
         query = (
             f"CREATE TABLE IF NOT EXISTS {self.table_name} ("
-            f"{t1}_id INTEGER REFERENCES {t1}({pk1}), "
-            f"{t2}_id INTEGER REFERENCES {t2}({pk2}), "
+            f"{t1}_id {ref_type} REFERENCES {t1}({pk1}), "
+            f"{t2}_id {ref_type} REFERENCES {t2}({pk2}), "
             f"PRIMARY KEY ({t1}_id, {t2}_id)"
             f")"
         )

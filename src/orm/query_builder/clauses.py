@@ -1,4 +1,7 @@
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.orm.db.dialect import Dialect
 
 
 class Select:
@@ -28,13 +31,17 @@ class Condition:
         self.value = value
         self.params = params or []
 
-    def compile(self) -> tuple[str, list[Any]]:
+    def compile(self, dialect: Optional["Dialect"] = None) -> tuple[str, list[Any]]:
         op = self.operator.upper()
         if op == "IN":
             values = self.value if isinstance(self.value, (list, tuple)) else [self.value]
-            placeholders = ", ".join(["?"] * len(values))
+            if dialect:
+                placeholders = dialect.placeholders(len(values))
+            else:
+                placeholders = ", ".join(["?"] * len(values))
             return f"{self.field} IN ({placeholders})", list(values)
-        return f"{self.field} {self.operator} ?", [self.value]
+        ph = dialect.param_style if dialect else "?"
+        return f"{self.field} {self.operator} {ph}", [self.value]
 
 
 class RawCondition:
@@ -42,7 +49,7 @@ class RawCondition:
         self.sql = sql
         self.params = params or []
 
-    def compile(self) -> tuple[str, list[Any]]:
+    def compile(self, dialect: Optional["Dialect"] = None) -> tuple[str, list[Any]]:
         return self.sql, self.params
 
 
@@ -63,7 +70,7 @@ class Where:
         self.children.append(where)
         return self
 
-    def compile(self) -> tuple[str, list[Any]]:
+    def compile(self, dialect: Optional["Dialect"] = None) -> tuple[str, list[Any]]:
         if not self.children:
             return "", []
 
@@ -71,12 +78,12 @@ class Where:
         params: list[Any] = []
         for child in self.children:
             if isinstance(child, Where):
-                sql, p = child.compile()
+                sql, p = child.compile(dialect=dialect)
                 if sql:
                     parts.append(f"({sql})")
                     params.extend(p)
             else:
-                sql, p = child.compile()
+                sql, p = child.compile(dialect=dialect)
                 if sql:
                     parts.append(sql)
                     params.extend(p)

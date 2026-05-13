@@ -22,7 +22,7 @@ def _next_version(migrations_dir: str) -> str:
     return f"{max_num + 1:03d}"
 
 
-def _render_operation(op: Any, indent: str = "    ") -> str:
+def _render_operation(op: Any, dialect: Any = None, indent: str = "    ") -> str:
     from src.orm.migrations.operations import (
         CreateTable,
         DropTable,
@@ -31,36 +31,32 @@ def _render_operation(op: Any, indent: str = "    ") -> str:
         CreateIndex,
         DropIndex,
     )
+    from src.orm.db.dialect import SQLiteDialect
+
+    if dialect is None:
+        dialect = SQLiteDialect()
+
+    if_not_exists = "IF NOT EXISTS " if dialect.supports_if_not_exists else ""
 
     if isinstance(op, CreateTable):
         lines = [f'{indent}# Create table {op.model_state.table_name}']
+        cols = []
         for c in op.model_state.columns:
             parts = [c.name, c.type]
             if c.primary_key and c.type.upper() == "INTEGER":
-                parts.append("PRIMARY KEY AUTOINCREMENT")
+                parts.append(f"PRIMARY KEY {dialect.auto_increment_sql()}")
             else:
                 if not c.nullable:
                     parts.append("NOT NULL")
                 if c.unique:
                     parts.append("UNIQUE")
-            lines.append(f'{indent}self.execute("""CREATE TABLE IF NOT EXISTS {op.model_state.table_name} (')
-            cols = []
-            for c2 in op.model_state.columns:
-                p2 = [c2.name, c2.type]
-                if c2.primary_key and c2.type.upper() == "INTEGER":
-                    p2.append("PRIMARY KEY AUTOINCREMENT")
-                else:
-                    if not c2.nullable:
-                        p2.append("NOT NULL")
-                    if c2.unique:
-                        p2.append("UNIQUE")
-                cols.append(" ".join(p2))
-            for cc in op.model_state.check_constraints:
-                cols.append(f"CHECK ({cc})")
-            col_sql = ", ".join(cols)
-            lines[-1] = f'{indent}self.execute("""CREATE TABLE IF NOT EXISTS {op.model_state.table_name} ({col_sql})""")'
-            lines = lines[-1:]  # simplified
-            break
+            cols.append(" ".join(parts))
+        for cc in op.model_state.check_constraints:
+            cols.append(f"CHECK ({cc})")
+        col_sql = ", ".join(cols)
+        lines.append(
+            f'{indent}self.execute("""CREATE TABLE {if_not_exists}{op.model_state.table_name} ({col_sql})""")'
+        )
 
         for fk in op.model_state.foreign_keys:
             fk_sql = f"{fk.local_column} INTEGER REFERENCES {fk.ref_table}({fk.ref_column})"
@@ -73,15 +69,14 @@ def _render_operation(op: Any, indent: str = "    ") -> str:
             )
 
         for idx in op.model_state.indexes:
-            kind = "UNIQUE INDEX" if idx.unique else "INDEX"
-            cols = ", ".join(idx.fields)
+            idx_sql = dialect.compile_create_index(idx.name, op.model_state.table_name, idx.fields, idx.unique)
             lines.append(
-                f'{indent}self.execute("CREATE {kind} IF NOT EXISTS {idx.name} ON {op.model_state.table_name}({cols})")'
+                f'{indent}self.execute("{idx_sql}")'
             )
 
         for m2m in op.model_state.m2m_tables:
             lines.append(
-                f'{indent}self.execute("""CREATE TABLE IF NOT EXISTS {m2m.table_name} ('
+                f'{indent}self.execute("""CREATE TABLE {if_not_exists}{m2m.table_name} ('
                 f'{m2m.owner_table}_id INTEGER REFERENCES {m2m.owner_table}({m2m.owner_pk}), '
                 f'{m2m.to_table}_id INTEGER REFERENCES {m2m.to_table}({m2m.to_pk}), '
                 f'PRIMARY KEY ({m2m.owner_table}_id, {m2m.to_table}_id))""")'
@@ -107,12 +102,12 @@ def _render_operation(op: Any, indent: str = "    ") -> str:
         return f'{indent}self.execute("ALTER TABLE {op.table} DROP COLUMN {op.column_name}")'
 
     if isinstance(op, CreateIndex):
-        kind = "UNIQUE INDEX" if op.unique else "INDEX"
-        cols = ", ".join(op.columns)
-        return f'{indent}self.execute("CREATE {kind} IF NOT EXISTS {op.index_name} ON {op.table}({cols})")'
+        idx_sql = dialect.compile_create_index(op.index_name, op.table, op.columns, op.unique)
+        return f'{indent}self.execute("{idx_sql}")'
 
     if isinstance(op, DropIndex):
-        return f'{indent}self.execute("DROP INDEX IF EXISTS {op.index_name}")'
+        idx_sql = dialect.compile_drop_index(op.index_name)
+        return f'{indent}self.execute("{idx_sql}")'
 
     return f"{indent}pass  # {op.describe()}"
 
@@ -122,9 +117,14 @@ def make_migration(
     migrations_dir: str = "migrations",
     message: str = "",
 ) -> str | None:
+    if hasattr(db, "get_dialect"):
+        dialect = db.get_dialect()
+    else:
+        from src.orm.db.dialect import SQLiteDialect
+        dialect = SQLiteDialect()
     model_states: dict[str, ModelState] = {}
     for name, model_cls in registry.get_all().items():
-        model_states[name] = ModelState.from_model(model_cls)
+        model_states[name] = ModelState.from_model(model_cls, dialect=dialect)
 
     os.makedirs(migrations_dir, exist_ok=True)
 
@@ -172,10 +172,10 @@ def make_migration(
 
     op_lines = []
     for i, op in enumerate(operations):
-        rendered = _render_operation(op)
+        rendered = _render_operation(op, dialect=dialect)
         op_lines.append(rendered)
 
-    up_ops = "\n".join(f"        {line}" for op in operations for line in _render_operation(op).split("\n"))
+    up_ops = "\n".join(f"        {line}" for op in operations for line in _render_operation(op, dialect=dialect).split("\n"))
     down_ops_lines = []
     for op in reversed(operations):
         from src.orm.migrations.operations import CreateTable, DropTable, AddColumn, CreateIndex
@@ -195,7 +195,7 @@ def make_migration(
             down_ops_lines.append(f"        # Cannot reverse DropColumn for {op.column_name}")
         elif isinstance(op, CreateIndex):
             down_ops_lines.append(
-                f'        self.execute("DROP INDEX IF EXISTS {op.index_name}")'
+                f'        self.execute("{dialect.compile_drop_index(op.index_name)}")'
             )
         elif hasattr(op, "describe"):
             down_ops_lines.append(f"        # No reverse for {op.describe()}")

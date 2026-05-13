@@ -3,6 +3,7 @@ import sqlite3
 import threading
 from typing import Optional, List, Any
 from src.orm.db.base import DatabaseAdapter
+from src.orm.db.dialect import SQLiteDialect
 from src.utils.logger import get_logger
 
 class SQLiteAdapter(DatabaseAdapter):
@@ -20,6 +21,7 @@ class SQLiteAdapter(DatabaseAdapter):
 
     self._local = threading.local()
     self._lock = threading.Lock()
+    self._dialect = SQLiteDialect()
 
     os.makedirs(self.db_directory, exist_ok=True)
     self.logger.info(f"SQLite configured: {self.database_path}")
@@ -29,7 +31,8 @@ class SQLiteAdapter(DatabaseAdapter):
       conn = sqlite3.connect(
         database=self.database_path,
         timeout=5,
-        check_same_thread=False
+        check_same_thread=False,
+        isolation_level=None
       )
       conn.row_factory = sqlite3.Row
       self._local.connection = conn
@@ -51,7 +54,6 @@ class SQLiteAdapter(DatabaseAdapter):
       connection = self._get_connection()
       cursor = connection.cursor()
       cursor.execute(query, params)
-      connection.commit()
       return cursor
 
   def query(self, query: str, params: Optional[List[Any]] = None) -> sqlite3.Cursor:
@@ -71,6 +73,19 @@ class SQLiteAdapter(DatabaseAdapter):
   def rollback(self) -> None:
     with self._lock:
       self._get_connection().rollback()
+
+  def get_dialect(self) -> SQLiteDialect:
+    return self._dialect
+
+  def set_isolation_level(self, level: str) -> None:
+    level = level.upper()
+    valid = {"READ UNCOMMITTED", "READ COMMITTED", "REPEATABLE READ", "SERIALIZABLE"}
+    if level not in valid:
+      raise ValueError(f"Invalid isolation level: {level}")
+    if level == "READ UNCOMMITTED":
+      self.execute("PRAGMA read_uncommitted = 1")
+    else:
+      self.execute("PRAGMA read_uncommitted = 0")
 
   def close(self) -> None:
     with self._lock:

@@ -27,12 +27,14 @@ class CreateTable(Operation):
         self.model_state = model_state
 
     def up(self, db: Any) -> None:
+        dialect = db.get_dialect()
         ts = self.model_state.table_name
+        if_not_exists = "IF NOT EXISTS " if dialect.supports_if_not_exists else ""
         col_defs = []
         for c in self.model_state.columns:
             parts = [c.name, c.type]
             if c.primary_key and c.type.upper() == "INTEGER":
-                parts.append("PRIMARY KEY AUTOINCREMENT")
+                parts.append(f"PRIMARY KEY {dialect.auto_increment_sql()}")
             else:
                 if not c.nullable:
                     parts.append("NOT NULL")
@@ -41,7 +43,7 @@ class CreateTable(Operation):
             col_defs.append(" ".join(parts))
         for cc in self.model_state.check_constraints:
             col_defs.append(f"CHECK ({cc})")
-        sql = f"CREATE TABLE IF NOT EXISTS {ts} ({', '.join(col_defs)})"
+        sql = f"CREATE TABLE {if_not_exists}{ts} ({', '.join(col_defs)})"
         db.execute(sql, [])
 
         for fk in self.model_state.foreign_keys:
@@ -59,15 +61,13 @@ class CreateTable(Operation):
             )
 
         for idx in self.model_state.indexes:
-            kind = "UNIQUE INDEX" if idx.unique else "INDEX"
-            cols = ", ".join(idx.fields)
             db.execute(
-                f"CREATE {kind} IF NOT EXISTS {idx.name} ON {ts}({cols})", []
+                dialect.compile_create_index(idx.name, ts, idx.fields, idx.unique), []
             )
 
         for m2m in self.model_state.m2m_tables:
             db.execute(
-                f"CREATE TABLE IF NOT EXISTS {m2m.table_name} ("
+                f"CREATE TABLE {if_not_exists}{m2m.table_name} ("
                 f"{m2m.owner_table}_id INTEGER REFERENCES {m2m.owner_table}({m2m.owner_pk}), "
                 f"{m2m.to_table}_id INTEGER REFERENCES {m2m.to_table}({m2m.to_pk}), "
                 f"PRIMARY KEY ({m2m.owner_table}_id, {m2m.to_table}_id))",
@@ -75,11 +75,12 @@ class CreateTable(Operation):
             )
 
     def down(self, db: Any) -> None:
+        dialect = db.get_dialect()
         ts = self.model_state.table_name
         for m2m in self.model_state.m2m_tables:
             db.execute(f"DROP TABLE IF EXISTS {m2m.table_name}", [])
         for idx in self.model_state.indexes:
-            db.execute(f"DROP INDEX IF EXISTS {idx.name}", [])
+            db.execute(dialect.compile_drop_index(idx.name), [])
         db.execute(f"DROP TABLE IF EXISTS {ts}", [])
 
     def describe(self) -> str:
@@ -127,7 +128,7 @@ class AddColumn(Operation):
             )
         except Exception:
             raise IrreversibleError(
-                f"SQLite does not support DROP COLUMN natively"
+                f"Dialect does not support DROP COLUMN natively"
             )
 
     def describe(self) -> str:
@@ -147,7 +148,7 @@ class DropColumn(Operation):
             )
         except Exception:
             raise IrreversibleError(
-                f"SQLite does not support DROP COLUMN natively"
+                f"Dialect does not support DROP COLUMN natively"
             )
 
     def down(self, db: Any) -> None:
@@ -173,15 +174,15 @@ class CreateIndex(Operation):
         self.unique = unique
 
     def up(self, db: Any) -> None:
-        kind = "UNIQUE INDEX" if self.unique else "INDEX"
-        cols = ", ".join(self.columns)
+        dialect = db.get_dialect()
         db.execute(
-            f"CREATE {kind} IF NOT EXISTS {self.index_name} ON {self.table}({cols})",
+            dialect.compile_create_index(self.index_name, self.table, self.columns, self.unique),
             [],
         )
 
     def down(self, db: Any) -> None:
-        db.execute(f"DROP INDEX IF EXISTS {self.index_name}", [])
+        dialect = db.get_dialect()
+        db.execute(dialect.compile_drop_index(self.index_name), [])
 
     def describe(self) -> str:
         return f"Create index {self.index_name} on {self.table}"
@@ -192,7 +193,8 @@ class DropIndex(Operation):
         self.index_name = index_name
 
     def up(self, db: Any) -> None:
-        db.execute(f"DROP INDEX IF EXISTS {self.index_name}", [])
+        dialect = db.get_dialect()
+        db.execute(dialect.compile_drop_index(self.index_name), [])
 
     def down(self, db: Any) -> None:
         raise IrreversibleError(
